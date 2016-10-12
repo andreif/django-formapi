@@ -3,7 +3,7 @@ from datetime import datetime, date, time
 from decimal import Decimal
 import json
 
-from django.contrib.auth.models import User
+import django
 from django.forms import IntegerField
 from django.test import TransactionTestCase, Client
 from django.utils.functional import curry
@@ -11,7 +11,7 @@ from django.utils.translation import ugettext_lazy
 import pytz
 
 from formapi.api import DjangoJSONEncoder
-from formapi.compat import smart_u
+from formapi.compat import smart_u, get_user_model
 from formapi.models import APIKey
 from formapi.utils import get_sign
 
@@ -22,7 +22,7 @@ class SignedRequestTest(TransactionTestCase):
         self.api_key = APIKey.objects.create(email="test@example.com")
         self.api_key_revoked = APIKey.objects.create(email="test3@example.com", revoked=True)
         self.client = Client()
-        self.user = User.objects.create(email="user@example.com", username="räksmörgås")
+        self.user = get_user_model().objects.create(email="user@example.com", username="räksmörgås")
         self.user.set_password("rosebud")
         self.user.save()
         self.authenticate_url = '/api/v1.0.0/user/authenticate/'
@@ -73,7 +73,6 @@ class SignedRequestTest(TransactionTestCase):
         data = {'username': self.user.username, 'password': '1337hax/x'}
         response = self.send_request(self.authenticate_url, data)
         self.assertEqual(response.status_code, 400)
-        print(repr(response.content))
         response_data = json.loads(smart_u(response.content))
         self.assertGreater(len(response_data['errors']), 0)
         self.assertFalse(response_data['success'])
@@ -189,17 +188,20 @@ class JSONEncoderTest(TransactionTestCase):
         self.dumps(decimal_data)
 
     def test_queryset(self):
-        User.objects.create(username="test", email="test@example.com")
-        queryset = {'queryset': User.objects.all()}
+        user_manager = get_user_model().objects
+        user_manager.create(username="test", email="test@example.com")
+        queryset = {'queryset': user_manager.all()}
         self.dumps(queryset)
-        self.dumps(User.objects.all())
+        self.dumps(user_manager.all())
 
     def test_values_list(self):
-        User.objects.create(username="test", email="test@example.com")
-        values = User.objects.values('id', 'email')
-        self.dumps(values)
-        values_list = User.objects.values_list('id', flat=True)
-        self.dumps(values_list)
+        if django.VERSION < (1, 9):
+            user_manager = get_user_model().objects
+            user_manager.create(username="test", email="test@example.com")
+            values = user_manager.values('id', 'email')
+            self.dumps(values)
+            values_list = user_manager.values_list('id', flat=True)
+            self.dumps(values_list)
 
     def test_gettext(self):
         gettext_data = {'gettext': ugettext_lazy(u'tränslate me please')}
